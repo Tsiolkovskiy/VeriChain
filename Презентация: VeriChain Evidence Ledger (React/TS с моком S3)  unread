@@ -1,0 +1,432 @@
+import React, { useState, useEffect } from 'react';
+
+// --- ТИПИЗАЦИЯ ДАННЫХ ---
+// Тип для файла доказательства
+interface EvidenceFile {
+  id: string;
+  name: string;
+  url: string;
+  uploadDate: string;
+}
+
+// Тип для члена команды
+interface TeamMemberProps {
+  name: string;
+  role: string;
+  imageUrl: string;
+}
+
+// --- МОК-КЛИЕНТ S3 ---
+// Это имитация работы с AWS S3. В реальном приложении здесь были бы
+// вызовы к вашему бэкенду или напрямую к AWS S3 SDK.
+const s3MockClient = {
+  // Имитация получения списка файлов
+  listFiles: async (): Promise<EvidenceFile[]> => {
+    console.log("S3_MOCK: Получение списка файлов...");
+    const storedFiles = localStorage.getItem('s3-mock-files');
+    const initialFiles: EvidenceFile[] = [
+        { id: 'initial-1', name: 'case-001-photo.jpg', url: 's3://verichain-bucket/case-001-photo.jpg', uploadDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },
+        { id: 'initial-2', name: 'witness-video.mp4', url: 's3://verichain-bucket/witness-video.mp4', uploadDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    ];
+    // Возвращаем начальные файлы, если в localStorage ничего нет
+    return storedFiles ? JSON.parse(storedFiles) : initialFiles;
+  },
+
+  // Имитация загрузки файла
+  uploadFile: async (file: File, files: EvidenceFile[]): Promise<EvidenceFile> => {
+    console.log(`S3_MOCK: Загрузка файла "${file.name}"...`);
+    // Имитируем задержку сети
+    await new Promise(resolve => setTimeout(resolve, 500)); 
+    const newEvidence: EvidenceFile = {
+      id: `file-${Date.now()}`,
+      name: file.name,
+      url: `s3://verichain-bucket/${file.name}`,
+      uploadDate: new Date().toISOString(),
+    };
+    const updatedFiles = [...files, newEvidence];
+    localStorage.setItem('s3-mock-files', JSON.stringify(updatedFiles));
+    console.log("S3_MOCK: Файл успешно загружен.", newEvidence);
+    return newEvidence;
+  },
+
+  // Имитация удаления файла
+  deleteFile: async (fileId: string, files: EvidenceFile[]): Promise<string> => {
+    console.log(`S3_MOCK: Удаление файла с id "${fileId}"...`);
+    // Имитируем задержку сети
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const updatedFiles = files.filter(f => f.id !== fileId);
+    localStorage.setItem('s3-mock-files', JSON.stringify(updatedFiles));
+    console.log("S3_MOCK: Файл успешно удален.");
+    return fileId;
+  },
+};
+
+
+// --- КОМПОНЕНТЫ СЛАЙДОВ ---
+
+// Компонент: Иконка логотипа
+const LogoIcon: React.FC = () => <div className="logo-icon mx-auto mb-4"></div>;
+
+// Компонент: Слайд 1 - Титульный
+const TitleSlide: React.FC = () => (
+  <section id="slide1" className="section-full bg-gradient-to-br from-gray-900 to-black">
+    <div className="mb-8">
+      <LogoIcon />
+      <h1 className="text-5xl md:text-7xl font-extrabold text-white">VeriChain Evidence Ledger</h1>
+    </div>
+    <p className="text-2xl md:text-4xl font-semibold text-red-400 mt-4">
+      "Evidence that can’t disappear"
+    </p>
+  </section>
+);
+
+// Компонент: Слайд 2 - Проблема
+const ProblemSlide: React.FC = () => (
+  <section id="slide2" className="section-full bg-gray-900">
+    <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Проблема: Уязвимость доказательств</h2>
+    <div className="max-w-xl mx-auto mb-8">
+      <img src="https://placehold.co/600x400/1f2937/d1d5db?text=Цифровые+улики+под+микроскопом" alt="Изображение, символизирующее анализ цифровых улик" className="rounded-xl shadow-lg w-full h-auto object-cover" />
+    </div>
+    <p className="text-xl md:text-2xl font-medium text-gray-300 max-w-2xl mx-auto">
+      "В цифровом мире каждая деталь имеет значение, но может быть искажена."
+    </p>
+    <p className="text-lg md:text-xl text-gray-400 mt-4 max-w-3xl mx-auto">
+      Без неопровержимой цифровой дедукции, истина остается скрытой за шумом данных.
+    </p>
+  </section>
+);
+
+// --- ИНТЕРАКТИВНЫЙ СЛАЙД-ДЕМО ---
+// Компонент: Слайд 3 - Интерактивное Решение (Менеджер Доказательств)
+const EvidenceManagerSlide: React.FC = () => {
+  const [files, setFiles] = useState<EvidenceFile[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+
+  // Получаем список файлов при первой загрузке компонента
+  useEffect(() => {
+    const fetchFiles = async () => {
+      setIsLoading(true);
+      const fileList = await s3MockClient.listFiles();
+      setFiles(fileList);
+      setIsLoading(false);
+    };
+    fetchFiles();
+  }, []);
+
+  // Обработчик загрузки файла
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileToUpload = event.target.files?.[0];
+    if (!fileToUpload) return;
+
+    setIsUploading(true);
+    await s3MockClient.uploadFile(fileToUpload, files);
+    // Обновляем список файлов после загрузки
+    const updatedFiles = await s3MockClient.listFiles();
+    setFiles(updatedFiles);
+    setIsUploading(false);
+  };
+
+  // Обработчик удаления файла
+  const handleFileDelete = async (fileId: string) => {
+    await s3MockClient.deleteFile(fileId, files);
+    // Обновляем список файлов после удаления
+    const updatedFiles = await s3MockClient.listFiles();
+    setFiles(updatedFiles);
+  };
+
+  return (
+    <section id="slide3" className="section-full bg-gray-800">
+      <h2 className="text-4xl md:text-5xl font-bold mb-8 text-white">Решение в действии: Хранилище улик</h2>
+      <div className="w-full max-w-4xl bg-gray-900 p-6 rounded-xl shadow-2xl border border-gray-700">
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="text-2xl font-semibold text-white">Файлы доказательств (S3 Bucket)</h3>
+            <label className={`bg-red-600 text-white font-bold py-2 px-4 rounded-lg cursor-pointer hover:bg-red-700 transition ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                {isUploading ? 'Загрузка...' : '🔗 Загрузить улику'}
+                <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+            </label>
+        </div>
+        
+        <div className="h-96 overflow-y-auto pr-2">
+            {isLoading ? (
+                <p className="text-gray-400 text-center py-10">Загрузка списка файлов из S3...</p>
+            ) : files.length === 0 ? (
+                <p className="text-gray-400 text-center py-10">Хранилище пусто. Загрузите первое доказательство.</p>
+            ) : (
+                <table className="w-full text-left">
+                    <thead className="sticky top-0 bg-gray-900">
+                        <tr>
+                            <th className="p-2 text-gray-300">Имя файла</th>
+                            <th className="p-2 text-gray-300">Дата фиксации</th>
+                            <th className="p-2 text-gray-300 text-right">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {files.map(file => (
+                            <tr key={file.id} className="border-b border-gray-700 hover:bg-gray-800">
+                                <td className="p-3 font-mono text-white">{file.name}</td>
+                                <td className="p-3 text-gray-400">{new Date(file.uploadDate).toLocaleString('ru-RU')}</td>
+                                <td className="p-3 text-right">
+                                    <button onClick={() => handleFileDelete(file.id)} className="text-red-500 hover:text-red-400 font-bold">
+                                        Удалить
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+
+// Компонент: Слайд 4 - Технология
+const TechnologySlide: React.FC = () => (
+  <section id="slide4" className="section-full bg-gray-900">
+    <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Технологическая основа</h2>
+    <div className="flex flex-col md:flex-row items-center justify-center max-w-4xl mx-auto text-gray-300 text-lg md:text-xl">
+      <div className="flex flex-col items-center mx-4 my-4 md:my-0">
+        <span className="tech-icon">📱</span>
+        <span className="font-mono">React/TS Frontend</span>
+      </div>
+      <span className="tech-arrow">→</span>
+      <div className="flex flex-col items-center mx-4 my-4 md:my-0">
+        <span className="tech-icon">☁️</span>
+        <span className="font-mono">AWS S3 Storage</span>
+      </div>
+      <span className="tech-arrow">→</span>
+      <div className="flex flex-col items-center mx-4 my-4 md:my-0">
+        <span className="tech-icon">⛓️</span>
+        <span className="font-mono">Блокчейн XION</span>
+      </div>
+    </div>
+    <p className="text-lg md:text-xl text-gray-400 mt-8 max-w-3xl mx-auto">
+      Интерактивный фронтенд на React, децентрализованное хранение файлов на S3/IPFS и неизменяемая запись о действиях в блокчейне XION.
+    </p>
+  </section>
+);
+
+// Компонент: Слайд 5 - Сценарий использования
+const UseCaseSlide: React.FC = () => (
+  <section id="slide5" className="section-full bg-gray-800">
+    <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Сценарий использования: От фиксации до суда</h2>
+    <div className="max-w-2xl mx-auto">
+      <div className="use-case-step">
+        <h3 className="text-xl font-bold text-red-400 mb-2">Шаг 1: Фиксация нарушения</h3>
+        <p className="text-gray-300">Полицейский снимает видео, загружает его в S3 через наше приложение. Хеш файла и ссылка на S3 немедленно записываются в блокчейн XION.</p>
+      </div>
+      <div className="use-case-step">
+        <h3 className="text-xl font-bold text-red-400 mb-2">Шаг 2: Передача прокурору</h3>
+        <p className="text-gray-300">Права на доступ к файлу в S3 передаются прокурору. Эта передача (трансфер NFT) записывается как транзакция в смарт-контракте.</p>
+      </div>
+      <div className="use-case-step">
+        <h3 className="text-xl font-bold text-red-400 mb-2">Шаг 3: Проверка в суде</h3>
+        <p className="text-gray-300">Суд проверяет историю в блокчейне, получает доступ к файлу в S3 и убеждается в его целостности по хешу.</p>
+      </div>
+    </div>
+  </section>
+);
+
+// Компонент: Слайд 6 - Конкурентное преимущество
+const AdvantageSlide: React.FC = () => (
+  <section id="slide6" className="section-full bg-gray-900">
+    <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Наше конкурсное преимущество</h2>
+    <div className="max-w-3xl mx-auto text-lg md:text-xl text-gray-300 space-y-6">
+      <div className="flex items-center justify-center">
+        <span className="text-5xl text-red-500 mr-4">🛡️</span>
+        <p>
+          <span className="font-bold text-white">Гарантированная целостность:</span> 100% аудируемый след (audit trail) для каждого доказательства, исключающий возможность подделки или удаления.
+        </p>
+      </div>
+      <div className="flex items-center justify-center">
+        <span className="text-5xl text-red-500 mr-4">✅</span>
+        <p>
+          <span className="font-bold text-white">Полное соответствие требованиям хакатона:</span> Используем XION Mobile Kit (Dave), zkTLS и мобильный подход, демонстрируя передовые возможности платформы XION.
+        </p>
+      </div>
+    </div>
+  </section>
+);
+
+// Компонент: Член команды
+const TeamMember: React.FC<TeamMemberProps> = ({ name, role, imageUrl }) => (
+  <div className="flex flex-col items-center bg-gray-700 p-6 rounded-xl shadow-md">
+    <img src={imageUrl} alt={`Фото ${name}`} className="rounded-full w-32 h-32 object-cover mb-4" />
+    <h3 className="text-xl font-bold text-white">{name}</h3>
+    <p className="text-gray-300">{role}</p>
+  </div>
+);
+
+// Компонент: Слайд 7 - Команда
+const TeamSlide: React.FC = () => {
+  const teamMembers: TeamMemberProps[] = [
+    { name: 'Имя Юриста', role: 'Юрист-эксперт', imageUrl: 'https://placehold.co/120x120/4b5563/d1d5db?text=Фото' },
+    { name: 'Имя Разработчика', role: 'Ведущий разработчик', imageUrl: 'https://placehold.co/120x120/4b5563/d1d5db?text=Фото' },
+    { name: 'Имя Дизайнера', role: 'UI/UX Дизайнер', imageUrl: 'https://placehold.co/120x120/4b5563/d1d5db?text=Фото' },
+  ];
+
+  return (
+    <section id="slide7" className="section-full bg-gray-800">
+      <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Наша команда</h2>
+      <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+        {teamMembers.map(member => <TeamMember key={member.name} {...member} />)}
+      </div>
+    </section>
+  );
+};
+
+// Компонент: Слайд 8 - Дорожная карта
+const RoadmapSlide: React.FC = () => (
+  <section id="slide8" className="section-full bg-gray-900">
+    <h2 className="text-4xl md:text-5xl font-bold mb-12 text-white">Дорожная карта</h2>
+    <div className="max-w-2xl mx-auto text-lg md:text-xl text-gray-300">
+      <div className="roadmap-item">
+        <span className="font-bold text-white">Идеатон:</span> Концепция VeriChain Evidence Ledger.
+      </div>
+      <div className="roadmap-item">
+        <span className="font-bold text-white">Контрольная точка 1:</span> MVP с базовой записью хешей доказательств в блокчейн и хранением в S3.
+      </div>
+      <div className="roadmap-item">
+        <span className="font-bold text-white">Финал:</span> Полная реализация шифрования доказательств и NFT для контроля доступа к файлам в S3.
+      </div>
+    </div>
+  </section>
+);
+
+// Компонент: Слайд 9 - Призыв к действию
+const CtaSlide: React.FC = () => (
+  <section id="slide9" className="section-full bg-gradient-to-br from-red-700 to-red-900">
+    <h2 className="text-4xl md:text-6xl font-extrabold text-white mb-8">
+      Stop evidence tampering.
+    </h2>
+    <h2 className="text-4xl md:text-6xl font-extrabold text-white mb-12">
+      Build trust with VeriChain.
+    </h2>
+    <a href="#" className="bg-white text-red-700 px-10 py-4 rounded-lg text-xl font-bold hover:bg-gray-200 transition shadow-lg">
+      Узнать больше
+    </a>
+  </section>
+);
+
+// --- ГЛАВНЫЙ КОМПОНЕНТ ПРИЛОЖЕНИЯ ---
+const App: React.FC = () => {
+  const styles = `
+    body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a; /* slate-900 */
+        color: #f8fafc; /* slate-50 */
+        scroll-behavior: smooth;
+    }
+    h1, h2, h3 {
+        font-weight: 800;
+        color: #f8fafc;
+    }
+    .section-full {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 4rem 1rem;
+        text-align: center;
+    }
+    .logo-icon {
+        display: inline-block;
+        position: relative;
+        width: 40px;
+        height: 40px;
+        border: 4px solid #ef4444; /* red-500 */
+        border-radius: 50%;
+        transform: rotate(45deg);
+    }
+    .logo-icon::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 20px;
+        height: 4px;
+        background-color: #ef4444; /* red-500 */
+        transform: translate(-50%, -50%) rotate(-45deg);
+    }
+    .logo-icon::after {
+        content: '✅';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-45deg);
+        font-size: 1.5rem;
+        color: #22c55e; /* green-500 */
+    }
+    .tech-arrow {
+        font-size: 2rem;
+        color: #ef4444; /* red-500 */
+        margin: 0 1rem;
+    }
+    .tech-icon {
+        font-size: 3rem;
+        color: #f8fafc; /* slate-50 */
+        margin-bottom: 0.5rem;
+    }
+    .use-case-step {
+        background-color: #1e293b; /* slate-800 */
+        border-radius: 1rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        text-align: left;
+        position: relative;
+        border: 1px solid #334155; /* slate-700 */
+    }
+    .use-case-step::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        transform: translateX(-50%) rotate(45deg);
+        width: 20px;
+        height: 20px;
+        background-color: #1e293b; /* slate-800 */
+        border-top: 1px solid #334155;
+        border-left: 1px solid #334155;
+    }
+    .use-case-step:first-child::before {
+        display: none;
+    }
+    .roadmap-item {
+        position: relative;
+        padding-left: 2rem;
+        margin-bottom: 1rem;
+        text-align: left;
+    }
+    .roadmap-item::before {
+        content: '●';
+        position: absolute;
+        left: 0;
+        color: #ef4444; /* red-500 */
+        font-size: 1.2rem;
+        top: 0.2rem;
+    }
+  `;
+
+  return (
+    <>
+      <style>{styles}</style>
+      <main className="antialiased">
+        <TitleSlide />
+        <ProblemSlide />
+        <EvidenceManagerSlide /> {/* <-- Заменили статичный слайд на интерактивный */}
+        <TechnologySlide />
+        <UseCaseSlide />
+        <AdvantageSlide />
+        <TeamSlide />
+        <RoadmapSlide />
+        <CtaSlide />
+      </main>
+    </>
+  );
+};
+
+export default App;
